@@ -12,10 +12,15 @@ __pycache__/
 script/
 test/
 
-model/embedding/
-db/vector/
-db/chunks/
-db/meta/
-docs/
+model/embedding/*
+!model/embedding/.gitkeep
+db/vector/*
+!db/vector/.gitkeep
+db/chunks/*
+!db/chunks/.gitkeep
+db/meta/*
+!db/meta/.gitkeep
+docs/*
+!docs/.gitkeep
 
 *.pdf
