@@ -1,0 +1,13 @@
+langchain
+langgraph
+langchain-openai
+langchain-community
+langchain-huggingface
+langchain-text-splitters
+qdrant-client
+pymupdf4llm
+sentence-transformers
+pydantic
+requests
+PyPDF2
+pytest
