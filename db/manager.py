@@ -23,6 +23,9 @@ from trace.telemetry import trace_span
 # Qdrant 配置（来自根 config）
 QDRANT_PATH = str(config.VECTOR_DIR)
 COLLECTION_NAME = config.QDRANT_COLLECTION
+KEYWORD_COLLECTION_NAME = config.QDRANT_KEYWORD_COLLECTION
+BM25_VECTOR_NAME = config.QDRANT_BM25_VECTOR_NAME
+BM25_MODEL = config.QDRANT_BM25_MODEL
 VECTOR_SIZE = config.EMBEDDING_VECTOR_SIZE
 
 
@@ -54,6 +57,40 @@ def ensure_collection(client: QdrantClient | None = None) -> QdrantClient:
                 size=VECTOR_SIZE,
                 distance=qdrant_models.Distance.COSINE,
             ),
+        )
+
+    return client
+
+
+def ensure_keyword_collection(client: QdrantClient | None = None) -> QdrantClient:
+    """
+    Ensure the independent BM25 sparse-vector collection exists.
+
+    This collection is intentionally separate from the dense vector collection so
+    keyword_search can stay a standalone tool.
+    """
+    if client is None:
+        client = get_client()
+
+    required_models = ("Document", "SparseVectorParams", "Modifier")
+    if any(not hasattr(qdrant_models, name) for name in required_models) or not hasattr(
+        qdrant_models.Modifier,
+        "IDF",
+    ):
+        raise RuntimeError(
+            "Qdrant BM25 sparse search requires a recent qdrant-client with fastembed. "
+            "Run `pip install -r requirements.txt`."
+        )
+
+    if not client.collection_exists(KEYWORD_COLLECTION_NAME):
+        client.create_collection(
+            collection_name=KEYWORD_COLLECTION_NAME,
+            vectors_config={},
+            sparse_vectors_config={
+                BM25_VECTOR_NAME: qdrant_models.SparseVectorParams(
+                    modifier=qdrant_models.Modifier.IDF,
+                )
+            },
         )
 
     return client
@@ -106,6 +143,7 @@ def insert_chunks(
         )
 
     client.upsert(collection_name=COLLECTION_NAME, points=points)
+    insert_keyword_chunks(chunks, client=client)
     return len(points)
 
 
@@ -156,6 +194,105 @@ def insert_tables(
         )
 
     client.upsert(collection_name=COLLECTION_NAME, points=points)
+    insert_keyword_tables(tables, client=client)
+    return len(points)
+
+
+@trace_span(
+    "qdrant.insert_keyword_chunks",
+    attributes=lambda args, kwargs, result: {
+        "collection": KEYWORD_COLLECTION_NAME,
+        "insert.count": result,
+    },
+)
+def insert_keyword_chunks(
+    chunks: list[dict],
+    client: QdrantClient | None = None,
+) -> int:
+    """Upsert child chunks into the standalone Qdrant BM25 collection."""
+    if not chunks:
+        return 0
+    client = ensure_keyword_collection(client)
+
+    points = []
+    for chunk in chunks:
+        metadata = chunk.get("metadata", {})
+        source = metadata.get("source", "")
+        point_id = _stable_point_id(source, chunk.get("child_index", 0))
+        content = chunk.get("content", "")
+        points.append(
+            qdrant_models.PointStruct(
+                id=point_id,
+                vector={
+                    BM25_VECTOR_NAME: qdrant_models.Document(
+                        text=_make_keyword_text(content, metadata),
+                        model=BM25_MODEL,
+                    )
+                },
+                payload={
+                    "doc_type": "text",
+                    "content": content,
+                    "metadata": metadata,
+                    "child_index": chunk.get("child_index", 0),
+                    "parent_id": chunk.get("parent_id"),
+                    "parent_index": chunk.get("parent_index", 0),
+                },
+            )
+        )
+
+    client.upsert(collection_name=KEYWORD_COLLECTION_NAME, points=points)
+    return len(points)
+
+
+@trace_span(
+    "qdrant.insert_keyword_tables",
+    attributes=lambda args, kwargs, result: {
+        "collection": KEYWORD_COLLECTION_NAME,
+        "insert.count": result,
+    },
+)
+def insert_keyword_tables(
+    tables: list[dict],
+    client: QdrantClient | None = None,
+) -> int:
+    """Upsert table evidence into the standalone Qdrant BM25 collection."""
+    if not tables:
+        return 0
+    client = ensure_keyword_collection(client)
+
+    points = []
+    for table in tables:
+        metadata = table.get("metadata", {})
+        source = metadata.get("source", "")
+        table_index = table.get("table_index", 0)
+        payload = {
+            "doc_type": "table",
+            "content": table.get("index_text") or table.get("caption") or table.get("content", ""),
+            "table_content": table.get("content", ""),
+            "caption": table.get("caption", ""),
+            "columns": table.get("columns", []),
+            "context_before": table.get("context_before", ""),
+            "context_after": table.get("context_after", ""),
+            "index_text": table.get("index_text", ""),
+            "table_index": table_index,
+            "table_id": table.get("table_id"),
+            "metadata": metadata,
+            "parse_warnings": table.get("parse_warnings", []),
+        }
+        points.append(
+            qdrant_models.PointStruct(
+                id=_stable_table_point_id(source, table_index),
+                vector={
+                    BM25_VECTOR_NAME: qdrant_models.Document(
+                        text=_make_table_keyword_text(payload),
+                        model=BM25_MODEL,
+                    )
+                },
+                payload=payload,
+            )
+        )
+
+    client.upsert(collection_name=KEYWORD_COLLECTION_NAME, points=points)
     return len(points)
 
 
@@ -171,6 +308,33 @@ def _stable_point_id(source: str, child_index: int) -> str:
 def _stable_table_point_id(source: str, table_index: int) -> str:
     name = f"{source}::table::{table_index}"
     return str(uuid.uuid5(uuid.NAMESPACE_URL, name))
+
+
+def _make_keyword_text(content: str, metadata: dict) -> str:
+    parts = [
+        content,
+        metadata.get("source") or "",
+        metadata.get("title") or "",
+        metadata.get("journal") or "",
+        " ".join(metadata.get("authors") or []),
+    ]
+    return "\n".join(parts)
+
+
+def _make_table_keyword_text(table: dict) -> str:
+    metadata = table.get("metadata", {})
+    parts = [
+        table.get("caption") or "",
+        table.get("index_text") or "",
+        table.get("context_before") or "",
+        table.get("context_after") or "",
+        table.get("table_content") or table.get("content") or "",
+        metadata.get("source") or "",
+        metadata.get("title") or "",
+        metadata.get("journal") or "",
+        " ".join(metadata.get("authors") or []),
+    ]
+    return "\n".join(parts)
 
 
 @trace_span(
@@ -365,6 +529,20 @@ def delete_by_source(source: str, client: QdrantClient | None = None) -> int:
             )
         ),
     )
+    if client.collection_exists(KEYWORD_COLLECTION_NAME):
+        client.delete(
+            collection_name=KEYWORD_COLLECTION_NAME,
+            points_selector=qdrant_models.FilterSelector(
+                filter=qdrant_models.Filter(
+                    must=[
+                        qdrant_models.FieldCondition(
+                            key="metadata.source",
+                            match=qdrant_models.MatchValue(value=source),
+                        )
+                    ]
+                )
+            ),
+        )
     return 0
 
 @trace_span(
@@ -487,3 +665,126 @@ def search_tables(
         }
         for hit in response.points
     ]
+
+
+@trace_span(
+    "qdrant.keyword_search",
+    attributes=lambda args, kwargs, result: {
+        "collection": KEYWORD_COLLECTION_NAME,
+        "top_k": kwargs.get("top_k", config.KEYWORD_TOP_K),
+        "hits.count": len(result or []),
+        "max_score": max([h.get("score", 0) for h in (result or [])], default=0),
+    },
+)
+def keyword_search(
+    query: str,
+    top_k: int = config.KEYWORD_TOP_K,
+    client: QdrantClient | None = None,
+) -> list[dict]:
+    """BM25 sparse search over child chunks in the standalone Qdrant collection."""
+    if not query.strip():
+        return []
+    client = ensure_keyword_collection(client)
+    response = client.query_points(
+        collection_name=KEYWORD_COLLECTION_NAME,
+        query=qdrant_models.Document(text=query, model=BM25_MODEL),
+        using=BM25_VECTOR_NAME,
+        query_filter=_doc_type_filter("text"),
+        limit=top_k,
+    )
+    return [
+        {
+            "content": hit.payload.get("content", ""),
+            "doc_type": hit.payload.get("doc_type", "text"),
+            "metadata": hit.payload.get("metadata", {}),
+            "child_index": hit.payload.get("child_index", 0),
+            "parent_id": hit.payload.get("parent_id"),
+            "parent_index": hit.payload.get("parent_index", 0),
+            "score": hit.score,
+        }
+        for hit in response.points
+    ]
+
+
+@trace_span(
+    "qdrant.keyword_search_tables",
+    attributes=lambda args, kwargs, result: {
+        "collection": KEYWORD_COLLECTION_NAME,
+        "top_k": kwargs.get("top_k", config.TABLE_TOP_K),
+        "hits.count": len(result or []),
+        "max_score": max([h.get("score", 0) for h in (result or [])], default=0),
+    },
+)
+def keyword_search_tables(
+    query: str,
+    top_k: int = config.TABLE_TOP_K,
+    client: QdrantClient | None = None,
+) -> list[dict]:
+    """BM25 sparse search over table evidence in the standalone Qdrant collection."""
+    if not query.strip():
+        return []
+    client = ensure_keyword_collection(client)
+    response = client.query_points(
+        collection_name=KEYWORD_COLLECTION_NAME,
+        query=qdrant_models.Document(text=query, model=BM25_MODEL),
+        using=BM25_VECTOR_NAME,
+        query_filter=_doc_type_filter("table"),
+        limit=top_k,
+    )
+    return [
+        {
+            "doc_type": "table",
+            "content": hit.payload.get("content", ""),
+            "table_content": hit.payload.get("table_content", ""),
+            "caption": hit.payload.get("caption", ""),
+            "columns": hit.payload.get("columns", []),
+            "context_before": hit.payload.get("context_before", ""),
+            "context_after": hit.payload.get("context_after", ""),
+            "table_index": hit.payload.get("table_index", 0),
+            "table_id": hit.payload.get("table_id"),
+            "metadata": hit.payload.get("metadata", {}),
+            "parse_warnings": hit.payload.get("parse_warnings", []),
+            "score": hit.score,
+        }
+        for hit in response.points
+    ]
+
+
+def rebuild_keyword_collection_from_chunks(client: QdrantClient | None = None) -> dict:
+    """
+    Rebuild the standalone BM25 collection from already saved chunk JSON files.
+
+    Useful after upgrading an existing dense-only index without re-importing PDFs.
+    """
+    if client is None:
+        client = get_client()
+    if client.collection_exists(KEYWORD_COLLECTION_NAME):
+        client.delete_collection(KEYWORD_COLLECTION_NAME)
+    ensure_keyword_collection(client)
+
+    child_count = 0
+    table_count = 0
+    for child_file in Path(config.CHUNKS_DIR).glob("*/*_children.json"):
+        try:
+            children = load_split_file(child_file)
+        except Exception:
+            continue
+        child_count += insert_keyword_chunks(children, client=client)
+    for table_file in Path(config.CHUNKS_DIR).glob("*/*_tables.json"):
+        try:
+            tables = load_split_file(table_file)
+        except Exception:
+            continue
+        table_count += insert_keyword_tables(tables, client=client)
+    return {"children": child_count, "tables": table_count}
+
+
+def _doc_type_filter(doc_type: str) -> qdrant_models.Filter:
+    return qdrant_models.Filter(
+        must=[
+            qdrant_models.FieldCondition(
+                key="doc_type",
+                match=qdrant_models.MatchValue(value=doc_type),
+            )
+        ]
+    )

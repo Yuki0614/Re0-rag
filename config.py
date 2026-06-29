@@ -67,6 +67,9 @@ EMBEDDING_VECTOR_SIZE = 384   # all-MiniLM-L6-v2 输出 384 维
 # 向量库（Qdrant 本地模式）配置
 # ──────────────────────────────────────────────
 QDRANT_COLLECTION = "re0rag_docs"
+QDRANT_KEYWORD_COLLECTION = "re0rag_docs_bm25"
+QDRANT_BM25_VECTOR_NAME = "bm25"
+QDRANT_BM25_MODEL = "Qdrant/bm25"
 
 
 # ──────────────────────────────────────────────

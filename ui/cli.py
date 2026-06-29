@@ -264,6 +264,17 @@ def cmd_list(args: list[str]) -> int:
     return 0
 
 
+def cmd_reindex_keywords(args: list[str]) -> int:
+    """Rebuild the standalone Qdrant BM25 collection from saved chunks."""
+    _reconfigure_stdout_utf8()
+    from db.manager import rebuild_keyword_collection_from_chunks
+
+    print("Rebuilding Qdrant BM25 keyword index from db/chunks ...")
+    result = rebuild_keyword_collection_from_chunks()
+    print(f"Done: {result['children']} child records, {result['tables']} table records.")
+    return 0
+
+
 def cmd_query(args: list[str], trace: bool = False) -> int:
     """
     RAG 问答：输入问题，走 input→rewrite→route→tool→llm→judge→output 链路。
@@ -327,6 +338,7 @@ COMMANDS = {
     "import": cmd_import,
     "delete": cmd_delete,
     "list": cmd_list,
+    "reindex-keywords": cmd_reindex_keywords,
     "query": cmd_query,
 }
 

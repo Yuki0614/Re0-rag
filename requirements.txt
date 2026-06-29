@@ -4,7 +4,7 @@ langchain-openai
 langchain-community
 langchain-huggingface
 langchain-text-splitters
-qdrant-client
+qdrant-client[fastembed]>=1.15.2
 pymupdf4llm
 sentence-transformers
 pydantic
