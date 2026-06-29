@@ -17,6 +17,8 @@ from langchain_core.messages import AIMessage, HumanMessage
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
 
+from trace.telemetry import trace_span
+
 from .state import RAGState
 from .tools import run_tool
 from .utils import (
@@ -98,6 +100,7 @@ def _as_bool(value, default: bool = False) -> bool:
     return default
 
 
+@trace_span("rag.input")
 def input_node(state: RAGState) -> dict:
     """
     节点1：输入节点。
@@ -118,6 +121,12 @@ def input_node(state: RAGState) -> dict:
     }
 
 
+@trace_span(
+    "rag.rewrite",
+    attributes=lambda args, kwargs, result: {
+        "rewritten_query.length": len((result or {}).get("rewritten_query") or ""),
+    },
+)
 def rewrite_node(state: RAGState) -> dict:
     """
     节点2：查询改写节点。
@@ -143,6 +152,14 @@ def rewrite_node(state: RAGState) -> dict:
     return {"rewritten_query": rewritten}
 
 
+@trace_span(
+    "rag.route",
+    attributes=lambda args, kwargs, result: {
+        "action": (result or {}).get("selected_tool"),
+        "query.length": len((result or {}).get("tool_query") or ""),
+        "route_history.count": len((result or {}).get("route_history") or []),
+    },
+)
 def route_node(state: RAGState) -> dict:
     """
     节点3：tool 路由节点。
@@ -197,6 +214,12 @@ def route_node(state: RAGState) -> dict:
     }
 
 
+@trace_span(
+    "rag.tool",
+    attributes=lambda args, kwargs, result: {
+        "parents.count": len((result or {}).get("parents") or []),
+    },
+)
 def tool_node(state: RAGState) -> dict:
     """
     节点4：执行 route_node 选择的本地 tool，并把结果归一化为 evidence。
@@ -222,6 +245,7 @@ def tool_node(state: RAGState) -> dict:
     }
 
 
+@trace_span("rag.llm")
 def llm_node(state: RAGState) -> dict:
     """
     节点4：LLM 节点。
@@ -253,6 +277,14 @@ def llm_node(state: RAGState) -> dict:
     }
 
 
+@trace_span(
+    "rag.judge",
+    attributes=lambda args, kwargs, result: {
+        "passed": ((result or {}).get("judge_result") or {}).get("passed"),
+        "retry_count": (result or {}).get("retry_count"),
+        "suggested_action": ((result or {}).get("judge_result") or {}).get("suggested_action"),
+    },
+)
 def judge_node(state: RAGState) -> dict:
     """
     节点6：答案检查节点。
@@ -320,6 +352,7 @@ def judge_node(state: RAGState) -> dict:
     }
 
 
+@trace_span("rag.output")
 def output_node(state: RAGState) -> dict:
     """
     节点5：输出节点。

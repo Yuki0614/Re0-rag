@@ -16,6 +16,7 @@ import config
 os.environ.setdefault("HF_ENDPOINT", "https://hf-mirror.com")
 
 from langchain_huggingface import HuggingFaceEmbeddings
+from trace.telemetry import trace_span
 
 
 # 模型参数（来自根 config）
@@ -42,6 +43,13 @@ def _is_model_cached() -> bool:
     return False
 
 
+@trace_span(
+    "embedding.get_model",
+    attributes=lambda args, kwargs, result: {
+        "model": MODEL_NAME,
+        "loaded": result is not None,
+    },
+)
 def get_embedding_model() -> HuggingFaceEmbeddings:
     """
     获取 Embedding 模型实例（单例缓存）。
@@ -69,6 +77,13 @@ def get_embedding_model() -> HuggingFaceEmbeddings:
     return _embedding_model
 
 
+@trace_span(
+    "embedding.embed_chunks",
+    attributes=lambda args, kwargs, result: {
+        "chunks.count": len(result or []),
+        "vector.size": len((result or [{}])[0].get("embedding", [])) if result else 0,
+    },
+)
 def embed_chunks(chunks: list[dict], model: HuggingFaceEmbeddings | None = None) -> list[dict]:
     """
     对 chunks 列表进行向量化，将向量附加到每个 chunk。
@@ -92,6 +107,13 @@ def embed_chunks(chunks: list[dict], model: HuggingFaceEmbeddings | None = None)
     return chunks
 
 
+@trace_span(
+    "embedding.embed_tables",
+    attributes=lambda args, kwargs, result: {
+        "tables.count": len(result or []),
+        "vector.size": len((result or [{}])[0].get("embedding", [])) if result else 0,
+    },
+)
 def embed_tables(tables: list[dict], model: HuggingFaceEmbeddings | None = None) -> list[dict]:
     """
     对表格 evidence 进行向量化。用于 embedding 的不是完整表体，而是 index_text：

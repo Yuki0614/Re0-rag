@@ -12,6 +12,8 @@ import io
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import StateGraph
 
+from trace.telemetry import trace_context, trace_span
+
 from .edges import add_edges
 from .state import RAGState
 
@@ -57,7 +59,14 @@ def preload() -> None:
     get_embedding_model()
 
 
-def run(question: str, thread_id: str = "default", verbose: bool = True) -> dict:
+@trace_span(
+    "rag.run",
+    attributes=lambda args, kwargs, result: {
+        "thread_id": kwargs.get("thread_id", args[1] if len(args) > 1 else "default"),
+        "question.length": len(args[0] if args else kwargs.get("question", "")),
+    },
+)
+def _run_traced(question: str, thread_id: str = "default", verbose: bool = True) -> dict:
     """
     单次运行 RAG 链路：输入问题，返回最终状态。
     复用已编译的图实例，不重复编译。
@@ -79,6 +88,11 @@ def run(question: str, thread_id: str = "default", verbose: bool = True) -> dict
         with contextlib.redirect_stdout(io.StringIO()):
             result = app.invoke({"question": question}, config=config_run)
     return result
+
+
+def run(question: str, thread_id: str = "default", verbose: bool = True) -> dict:
+    with trace_context(enabled=verbose):
+        return _run_traced(question, thread_id=thread_id, verbose=verbose)
 
 
 if __name__ == "__main__":

@@ -17,9 +17,24 @@ from db.chunk import load_split_file
 from db.embedding import get_embedding_model
 from db.manager import fetch_linked_tables, fetch_parents, search, search_tables
 
+from trace.telemetry import trace_span
+
 from .utils import format_sources
 
 
+@trace_span(
+    "tool.vector_search",
+    attributes=lambda args, kwargs, result: {
+        "top_k": kwargs.get("top_k") or config.VECTOR_TOP_K,
+        "child_hits.count": len((result or {}).get("documents") or []),
+        "parents.count": len((result or {}).get("parents") or []),
+        "tables.count": len((result or {}).get("tables") or []),
+        "max_score": max(
+            [h.get("score", 0) for h in ((result or {}).get("documents") or [])],
+            default=0,
+        ),
+    },
+)
 def vector_search_tool(query: str, top_k: int | None = None) -> dict:
     """
     向量检索 tool：query -> embedding -> Qdrant child 相似度检索 -> parent 召回。
@@ -55,6 +70,20 @@ def vector_search_tool(query: str, top_k: int | None = None) -> dict:
     }
 
 
+@trace_span(
+    "tool.keyword_search",
+    attributes=lambda args, kwargs, result: {
+        "top_k": kwargs.get("top_k") or config.KEYWORD_TOP_K,
+        "terms.count": len((result or {}).get("terms") or []),
+        "child_hits.count": len((result or {}).get("documents") or []),
+        "parents.count": len((result or {}).get("parents") or []),
+        "tables.count": len((result or {}).get("tables") or []),
+        "max_score": max(
+            [h.get("score", 0) for h in ((result or {}).get("documents") or [])],
+            default=0,
+        ),
+    },
+)
 def keyword_search_tool(query: str, top_k: int | None = None) -> dict:
     """
     关键词检索 tool：扫描已落盘 children chunks，按词项命中打分，再召回 parent。
@@ -85,6 +114,7 @@ def keyword_search_tool(query: str, top_k: int | None = None) -> dict:
     }
 
 
+@trace_span("tool.no_retrieval")
 def no_retrieval_tool(query: str) -> dict:
     """
     不检索 tool：用于寒暄、系统操作类问题，明确返回空证据。
@@ -100,6 +130,13 @@ def no_retrieval_tool(query: str) -> dict:
     }
 
 
+@trace_span(
+    "tool.run",
+    attributes=lambda args, kwargs, result: {
+        "action": args[0] if args else kwargs.get("action"),
+        "query.length": len(args[1] if len(args) > 1 else kwargs.get("query", "")),
+    },
+)
 def run_tool(action: str, query: str) -> dict:
     """
     根据 route 节点给出的 action 调用对应 tool。

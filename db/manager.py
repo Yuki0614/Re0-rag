@@ -17,6 +17,7 @@ from qdrant_client import QdrantClient
 from qdrant_client.http import models as qdrant_models
 
 from db.chunk import load_split_file
+from trace.telemetry import trace_span
 
 
 # Qdrant 配置（来自根 config）
@@ -58,6 +59,13 @@ def ensure_collection(client: QdrantClient | None = None) -> QdrantClient:
     return client
 
 
+@trace_span(
+    "qdrant.insert_chunks",
+    attributes=lambda args, kwargs, result: {
+        "collection": COLLECTION_NAME,
+        "insert.count": result,
+    },
+)
 def insert_chunks(
     chunks: list[dict],
     client: QdrantClient | None = None,
@@ -101,6 +109,13 @@ def insert_chunks(
     return len(points)
 
 
+@trace_span(
+    "qdrant.insert_tables",
+    attributes=lambda args, kwargs, result: {
+        "collection": COLLECTION_NAME,
+        "insert.count": result,
+    },
+)
 def insert_tables(
     tables: list[dict],
     client: QdrantClient | None = None,
@@ -158,6 +173,13 @@ def _stable_table_point_id(source: str, table_index: int) -> str:
     return str(uuid.uuid5(uuid.NAMESPACE_URL, name))
 
 
+@trace_span(
+    "qdrant.fetch_parents",
+    attributes=lambda args, kwargs, result: {
+        "hits.count": len(args[0] if args else kwargs.get("hits", [])),
+        "parents.count": len(result[0]) if result else 0,
+    },
+)
 def fetch_parents(
     hits: list[dict],
     client: QdrantClient | None = None,
@@ -224,6 +246,13 @@ def fetch_parents(
     return list(parents_order.values()), list(parents_order.keys())
 
 
+@trace_span(
+    "qdrant.fetch_linked_tables",
+    attributes=lambda args, kwargs, result: {
+        "parents.count": len(args[0] if args else kwargs.get("parents", [])),
+        "tables.count": len(result or []),
+    },
+)
 def fetch_linked_tables(parents: list[dict]) -> list[dict]:
     """根据 parent 中的 TABLE_REF 占位符加载关联表格 evidence。"""
     refs: list[tuple[str, int]] = []
@@ -304,6 +333,12 @@ def list_sources(client: QdrantClient | None = None) -> list[dict]:
     return [{"source": s, "chunks": n} for s, n in sorted(counter.items())]
 
 
+@trace_span(
+    "qdrant.delete_by_source",
+    attributes=lambda args, kwargs, result: {
+        "collection": COLLECTION_NAME,
+    },
+)
 def delete_by_source(source: str, client: QdrantClient | None = None) -> int:
     """
     按文档名(source)删除其在向量库中的所有 child/table point。
@@ -332,6 +367,16 @@ def delete_by_source(source: str, client: QdrantClient | None = None) -> int:
     )
     return 0
 
+@trace_span(
+    "qdrant.search",
+    attributes=lambda args, kwargs, result: {
+        "collection": COLLECTION_NAME,
+        "top_k": kwargs.get("top_k", config.RETRIEVE_TOP_K),
+        "doc_type": kwargs.get("doc_type", "text"),
+        "hits.count": len(result or []),
+        "max_score": max([h.get("score", 0) for h in (result or [])], default=0),
+    },
+)
 def search(
     query_vector: list[float],
     top_k: int = config.RETRIEVE_TOP_K,
@@ -395,6 +440,15 @@ def search(
     ]
 
 
+@trace_span(
+    "qdrant.search_tables",
+    attributes=lambda args, kwargs, result: {
+        "collection": COLLECTION_NAME,
+        "top_k": kwargs.get("top_k", 3),
+        "hits.count": len(result or []),
+        "max_score": max([h.get("score", 0) for h in (result or [])], default=0),
+    },
+)
 def search_tables(
     query_vector: list[float],
     top_k: int = 3,
