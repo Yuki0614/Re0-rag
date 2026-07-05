@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 re0-rag 命令行界面：文档管理（导入 / 删除 / 列表）与问答。
 命令的具体实现在此，main.py 负责解析 argv 并分发到这里。
@@ -113,12 +115,12 @@ def _import_pdf(pdf_path: Path) -> None:
 def cmd_import(args: list[str]) -> int:
     """
     导入文档：PDF → Markdown → 切分 → 向量化 → 替换写入向量库。
-    用法: python main.py import <PDF路径或目录路径>
+    用法: python main.py -cli import <PDF路径或目录路径>
     """
     _reconfigure_stdout_utf8()
 
     if not args:
-        print("用法: python main.py import <PDF路径或目录路径>")
+        print("用法: python main.py -cli import <PDF路径或目录路径>")
         return 1
 
     input_path = Path(" ".join(args))
@@ -180,15 +182,15 @@ def cmd_import(args: list[str]) -> int:
 def cmd_delete(args: list[str]) -> int:
     """
     删除文档：从 Qdrant 删除该文档所有 child/table,并清理本地 .md / chunks目录 / meta.json。
-    用法: python main.py delete <文档名或source>
+    用法: python main.py -cli delete <文档名或source>
           source 即 list 命令显示的文件名（如 xxx.md）。
     """
     _reconfigure_stdout_utf8()
     from db.manager import delete_by_source, list_sources
 
     if not args:
-        print("用法: python main.py delete <文档名>")
-        print("      文档名可用 `python main.py list` 查看")
+        print("用法: python main.py -cli delete <文档名>")
+        print("      文档名可用 `python main.py -cli list` 查看")
         return 1
 
     source = " ".join(args).strip()
@@ -235,7 +237,7 @@ def cmd_delete(args: list[str]) -> int:
 def cmd_list(args: list[str]) -> int:
     """
     列出向量库中所有已索引文档及其 chunk 数。
-    用法: python main.py list
+    用法: python main.py -cli list
     """
     _reconfigure_stdout_utf8()
     from db.manager import list_sources
@@ -244,7 +246,7 @@ def cmd_list(args: list[str]) -> int:
     sources = list_sources()
     if not sources:
         print("向量库为空，暂无文档。")
-        print("可用 `python main.py import <PDF路径或目录路径>` 导入。")
+        print("可用 `python main.py -cli import <PDF路径或目录路径>` 导入。")
         return 0
 
     total = sum(item["chunks"] for item in sources)
@@ -278,9 +280,9 @@ def cmd_reindex_keywords(args: list[str]) -> int:
 def cmd_query(args: list[str], trace: bool = False) -> int:
     """
     RAG 问答：输入问题，走 input→rewrite→route→tool→llm→judge→output 链路。
-    用法: python main.py query <问题>      单次提问后退出（独立会话）
-          python main.py query -t <问题>   单次提问并显示完整流程
-          python main.py query             交互式循环提问（共享会话历史，输入 exit/quit 退出）
+    用法: python main.py -cli query <问题>      单次提问后退出（独立会话）
+          python main.py -cli query -t <问题>   单次提问并显示完整流程
+          python main.py -cli query             交互式循环提问（共享会话历史，输入 exit/quit 退出）
     """
     _reconfigure_stdout_utf8()
     from re0rag.graph import preload as preload_rag
@@ -346,7 +348,7 @@ COMMANDS = {
 def main(argv: list[str] | None = None) -> int:
     """
     CLI 主入口：解析 argv 分发到对应命令。
-    无子命令时默认进入问答（向后兼容 python main.py "问题"）。
+    无子命令时默认进入问答（python main.py -cli "问题"）。
 
     Returns:
         进程退出码
@@ -369,7 +371,7 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_query(rest)
         return COMMANDS[cmd](rest)
 
-    # 不是已知命令 → 当作问题处理（向后兼容 python main.py "问题"）
+    # 不是已知命令 → 当作问题处理（python main.py -cli "问题"）
     return cmd_query(argv)
 
 

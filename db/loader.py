@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 文档加载模块：使用 pymupdf4llm 将 PDF 转为 Markdown，保留表格、丢弃图片。
 输出到 config.DOCS_DIR 目录。

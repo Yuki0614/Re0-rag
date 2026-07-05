@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 向量库管理模块：负责将向量 + 原文存入 Qdrant 向量数据库。
 持久化路径、集合名、向量维度等超参数统一从根 config 读取。

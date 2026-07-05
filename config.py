@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 re0-rag 全局配置：所有超参数集中在此。
 db/ 与 re0rag/ 下的模块统一从根 config 读取，不在各自模块里硬编码。

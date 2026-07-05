@@ -24,3 +24,8 @@ docs/*
 !docs/.gitkeep
 
 *.pdf
+
+uploads/
+tmp/
+web/node_modules/
+web/dist/

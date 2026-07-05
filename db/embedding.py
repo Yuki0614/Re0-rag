@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 向量化模块：使用 embedding 模型将文本块转为向量。
 模型名与缓存目录等超参数统一从根 config 读取。

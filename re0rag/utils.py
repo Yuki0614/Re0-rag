@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 RAG 链路工具函数：Prompt 拼装、来源格式化、结构化 JSON 解析。
 Prompt 模板从根 config 读取。

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 Agentic RAG 本地工具层。
 

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 文本切分模块：parent-child chunk + 表格独立抽取。
 
@@ -411,4 +413,3 @@ def save_split(split_data: dict, paper_dir: str | Path, stem: str) -> dict:
 def load_split_file(json_path: str | Path) -> list[dict]:
     """通用：读一个聚合 JSON（tables/parents/children 任一）。"""
     return json.loads(Path(json_path).read_text(encoding="utf-8"))
-

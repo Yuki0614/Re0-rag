@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 论文元数据抽取模块：在导入时用 LLM 从转好的 Markdown + PDF 首页文本抽取
 标题 / 作者 / 期刊 / 摘要 四字段。
@@ -13,6 +15,7 @@ import json
 import re
 import sys
 from pathlib import Path
+from typing import Optional
 
 # 把项目根加入 sys.path 以便 import 根 config
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -265,10 +268,10 @@ def _llm_extract(evidence: dict) -> dict:
         from pydantic import BaseModel, Field
 
         class PaperMeta(BaseModel):
-            title: str | None = Field(None)
-            authors: list[str] | None = Field(None)
-            journal: str | None = Field(None)
-            abstract: str | None = Field(None)
+            title: Optional[str] = Field(None)
+            authors: Optional[list[str]] = Field(None)
+            journal: Optional[str] = Field(None)
+            abstract: Optional[str] = Field(None)
 
         chain = prompt | llm.with_structured_output(PaperMeta)
         result = chain.invoke(vars_dict)
@@ -334,7 +337,7 @@ def _llm_extract_abstract(evidence: dict, meta: dict) -> str | None:
         from pydantic import BaseModel, Field
 
         class AbstractOnly(BaseModel):
-            abstract: str | None = Field(None)
+            abstract: Optional[str] = Field(None)
 
         result = (prompt | llm.with_structured_output(AbstractOnly)).invoke(vars_dict)
         return _extract_value(result)

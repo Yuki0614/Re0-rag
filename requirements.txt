@@ -11,3 +11,6 @@ pydantic
 requests
 PyPDF2
 pytest
+fastapi
+uvicorn
+python-multipart
