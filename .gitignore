@@ -20,6 +20,8 @@ db/chunks/*
 !db/chunks/.gitkeep
 db/meta/*
 !db/meta/.gitkeep
+db/ocr/*
+!db/ocr/.gitkeep
 docs/*
 !docs/.gitkeep
 

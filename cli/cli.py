@@ -64,10 +64,12 @@ def _import_pdf(pdf_path: Path) -> None:
 
     print("[3/5] Markdown → Tables / Parent-Child Chunks")
     # split_data: {tables, parents, children}
-    split_data = split_markdown(md_path)
+    split_data = split_markdown(md_path, pdf_path=pdf_path)
     tables = split_data["tables"]
     parents = split_data["parents"]
     children = split_data["children"]
+    for warning in split_data.get("warnings") or []:
+        print(f"      [表格增强] {warning}")
 
     # 把抽取出的论文元数据注入每个 chunk 的 metadata,随向量一起入 Qdrant,
     # 检索命中时即可携带所属论文的标题/摘要,供生成层引用与增强。

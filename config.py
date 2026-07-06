@@ -40,6 +40,7 @@ _load_dotenv(PROJECT_ROOT / ".env")
 DOCS_DIR = PROJECT_ROOT / "docs"                 # PDF 转出的 Markdown
 CHUNKS_DIR = PROJECT_ROOT / "db" / "chunks"      # 切分后的 chunks JSON
 VECTOR_DIR = PROJECT_ROOT / "db" / "vector"      # Qdrant 本地持久化目录
+OCR_DIR = PROJECT_ROOT / "db" / "ocr"            # OCR 结果缓存目录
 EMBEDDING_MODEL_DIR = PROJECT_ROOT / "model" / "embedding"  # embedding 模型缓存
 
 
@@ -56,6 +57,28 @@ PARENT_OVERLAP_CHARS = 200   # parent 段间重叠字符数
 
 # db/chunks/ 下结构：{stem}/{stem}_tables.json / _parents.json / _children.json
 # 表格单独存、不切分，并以 table evidence 写入向量库；parent/child 各一个聚合 JSON。
+
+
+# ──────────────────────────────────────────────
+# OCR / 多模态表格抽取配置
+# ──────────────────────────────────────────────
+# OCR 是可选增强：未配置或服务不可用时，导入流程继续执行，只跳过需要 OCR 才能修复的表格。
+OCR_ENABLED = _env("RE0RAG_OCR_ENABLED", default="1").lower() not in {"0", "false", "no", "off"}
+OCR_BASE_URL = _env(
+    "RE0RAG_OCR_BASE_URL",
+    "RE0RAG_MULTIMODAL_BASE_URL",
+    "https://paddleocr.aistudio-app.com/api/v2/ocr/jobs",
+)
+OCR_API_KEY = _env("RE0RAG_OCR_API_KEY", "RE0RAG_MULTIMODAL_API_KEY")
+OCR_MODEL = _env("RE0RAG_OCR_MODEL", "RE0RAG_MULTIMODAL_MODEL", "PaddleOCR-VL-1.6")
+OCR_POLL_INTERVAL_SECONDS = int(_env("RE0RAG_OCR_POLL_INTERVAL_SECONDS", default="5") or "5")
+OCR_TIMEOUT_SECONDS = int(_env("RE0RAG_OCR_TIMEOUT_SECONDS", default="900") or "900")
+OCR_USE_CACHE = _env("RE0RAG_OCR_USE_CACHE", default="1").lower() not in {"0", "false", "no", "off"}
+OCR_OPTIONAL_PAYLOAD = {
+    "useDocOrientationClassify": False,
+    "useDocUnwarping": False,
+    "useChartRecognition": False,
+}
 
 
 # ──────────────────────────────────────────────

@@ -85,12 +85,20 @@ def _format_table_context(i: int, doc: dict) -> str:
     caption = doc.get("caption") or f"Table {doc.get('table_index', '?')}"
     columns = doc.get("columns") or []
     warnings = doc.get("parse_warnings") or []
-    table_body = doc.get("table_content") or doc.get("content", "")
+    table_body = doc.get("markdown") or doc.get("table_content") or doc.get("content", "")
+    cells = doc.get("cells") or []
+    source_method = doc.get("source_method") or ""
+    confidence = doc.get("confidence")
     context_before = doc.get("context_before") or ""
     context_after = doc.get("context_after") or ""
 
     header = f"[表格{i}] 论文: {title} | 表格: {caption}"
     parts = []
+    if source_method:
+        quality = f"抽取方式: {source_method}"
+        if confidence:
+            quality += f" | 置信度: {confidence}"
+        parts.append(quality)
     if columns:
         parts.append("列名: " + ", ".join(columns))
     if warnings:
@@ -99,6 +107,8 @@ def _format_table_context(i: int, doc: dict) -> str:
         parts.append("表格前后相关正文(前): " + context_before)
     if context_after:
         parts.append("表格前后相关正文(后): " + context_after)
+    if cells:
+        parts.append("结构化单元格(JSON):\n" + json.dumps(cells, ensure_ascii=False))
     if table_body:
         parts.append("表格原文/候选内容:\n" + table_body)
     return header + "\n" + "\n\n".join(parts)

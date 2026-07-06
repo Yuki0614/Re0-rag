@@ -252,7 +252,7 @@ def _compact_evidence(items: list[dict[str, Any]], limit: int = 3) -> list[dict[
     result = []
     for item in items[:limit]:
         metadata = item.get("metadata") or {}
-        content = item.get("content") or item.get("table_content") or ""
+        content = item.get("markdown") or item.get("table_content") or item.get("content") or ""
         result.append(
             {
                 "content": content[:900],
@@ -261,6 +261,7 @@ def _compact_evidence(items: list[dict[str, Any]], limit: int = 3) -> list[dict[
                 "page": metadata.get("page", metadata.get("page_number", "")),
                 "score": item.get("score"),
                 "doc_type": item.get("doc_type", "text"),
+                "source_method": item.get("source_method", ""),
             }
         )
     return result

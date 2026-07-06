@@ -5,6 +5,7 @@ from __future__ import annotations
 持久化路径、集合名、向量维度等超参数统一从根 config 读取。
 """
 
+import json
 import re
 import sys
 import uuid
@@ -177,6 +178,8 @@ def insert_tables(
             "doc_type": "table",
             "content": table.get("index_text") or table.get("caption") or table.get("content", ""),
             "table_content": table.get("content", ""),
+            "markdown": table.get("markdown", ""),
+            "cells": table.get("cells", []),
             "caption": table.get("caption", ""),
             "columns": table.get("columns", []),
             "context_before": table.get("context_before", ""),
@@ -186,6 +189,8 @@ def insert_tables(
             "table_id": table.get("table_id"),
             "metadata": table.get("metadata", {}),
             "parse_warnings": table.get("parse_warnings", []),
+            "source_method": table.get("source_method", ""),
+            "confidence": table.get("confidence", 0),
         }
         points.append(
             qdrant_models.PointStruct(
@@ -271,6 +276,8 @@ def insert_keyword_tables(
             "doc_type": "table",
             "content": table.get("index_text") or table.get("caption") or table.get("content", ""),
             "table_content": table.get("content", ""),
+            "markdown": table.get("markdown", ""),
+            "cells": table.get("cells", []),
             "caption": table.get("caption", ""),
             "columns": table.get("columns", []),
             "context_before": table.get("context_before", ""),
@@ -280,6 +287,8 @@ def insert_keyword_tables(
             "table_id": table.get("table_id"),
             "metadata": metadata,
             "parse_warnings": table.get("parse_warnings", []),
+            "source_method": table.get("source_method", ""),
+            "confidence": table.get("confidence", 0),
         }
         points.append(
             qdrant_models.PointStruct(
@@ -331,6 +340,8 @@ def _make_table_keyword_text(table: dict) -> str:
         table.get("context_before") or "",
         table.get("context_after") or "",
         table.get("table_content") or table.get("content") or "",
+        table.get("markdown") or "",
+        json.dumps(table.get("cells") or [], ensure_ascii=False),
         metadata.get("source") or "",
         metadata.get("title") or "",
         metadata.get("journal") or "",
@@ -655,6 +666,8 @@ def search_tables(
             "doc_type": "table",
             "content": hit.payload.get("content", ""),
             "table_content": hit.payload.get("table_content", ""),
+            "markdown": hit.payload.get("markdown", ""),
+            "cells": hit.payload.get("cells", []),
             "caption": hit.payload.get("caption", ""),
             "columns": hit.payload.get("columns", []),
             "context_before": hit.payload.get("context_before", ""),
@@ -663,6 +676,8 @@ def search_tables(
             "table_id": hit.payload.get("table_id"),
             "metadata": hit.payload.get("metadata", {}),
             "parse_warnings": hit.payload.get("parse_warnings", []),
+            "source_method": hit.payload.get("source_method", ""),
+            "confidence": hit.payload.get("confidence", 0),
             "score": hit.score,
         }
         for hit in response.points
@@ -738,6 +753,8 @@ def keyword_search_tables(
             "doc_type": "table",
             "content": hit.payload.get("content", ""),
             "table_content": hit.payload.get("table_content", ""),
+            "markdown": hit.payload.get("markdown", ""),
+            "cells": hit.payload.get("cells", []),
             "caption": hit.payload.get("caption", ""),
             "columns": hit.payload.get("columns", []),
             "context_before": hit.payload.get("context_before", ""),
@@ -746,6 +763,8 @@ def keyword_search_tables(
             "table_id": hit.payload.get("table_id"),
             "metadata": hit.payload.get("metadata", {}),
             "parse_warnings": hit.payload.get("parse_warnings", []),
+            "source_method": hit.payload.get("source_method", ""),
+            "confidence": hit.payload.get("confidence", 0),
             "score": hit.score,
         }
         for hit in response.points
