@@ -281,7 +281,7 @@ def cmd_reindex_keywords(args: list[str]) -> int:
 
 def cmd_query(args: list[str], trace: bool = False) -> int:
     """
-    RAG 问答：输入问题，走 input→rewrite→route→tool→llm→judge→output 链路。
+    RAG 问答：输入问题，走 input→summarize_memory→rewrite→route→tool→llm→judge→output 链路。
     用法: python main.py -cli query <问题>      单次提问后退出（独立会话）
           python main.py -cli query -t <问题>   单次提问并显示完整流程
           python main.py -cli query             交互式循环提问（共享会话历史，输入 exit/quit 退出）
@@ -313,7 +313,7 @@ def cmd_query(args: list[str], trace: bool = False) -> int:
             preload_rag()
     print("系统就绪，输入问题开始提问（输入 exit 或 quit 退出）。")
     if trace:
-        print("当前为 trace 模式，将显示改写、路由、工具调用和检查流程。")
+        print("当前为 trace 模式，将显示记忆摘要、改写、路由、工具调用和检查流程。")
     print("-" * 60)
 
     while True:

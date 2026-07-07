@@ -1,4 +1,4 @@
-import { BrainCircuit, CheckCircle2, GitBranch, Search, ShieldCheck, Sparkles } from "lucide-react";
+import { Archive, BrainCircuit, CheckCircle2, GitBranch, Search, ShieldCheck, Sparkles } from "lucide-react";
 import type { QueryResult } from "../types";
 
 const fallbackSteps = [
@@ -15,7 +15,14 @@ type Props = {
 
 export function WorkflowBar({ latestResult }: Props) {
   const route = latestResult?.route_history?.at(-1);
-  const steps = fallbackSteps.map((step) => {
+  const baseSteps = latestResult?.memory_summary_result?.triggered
+    ? [
+        fallbackSteps[0],
+        { label: "记忆摘要", icon: Archive, state: "passed" },
+        ...fallbackSteps.slice(1)
+      ]
+    : fallbackSteps;
+  const steps = baseSteps.map((step) => {
     if (step.label === "Qdrant 检索" && route?.action) {
       return { ...step, label: route.action === "keyword_search" ? "BM25 检索" : "Qdrant 检索" };
     }

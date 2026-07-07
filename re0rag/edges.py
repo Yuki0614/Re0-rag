@@ -21,12 +21,14 @@ from .nodes import (
     output_node,
     rewrite_node,
     route_node,
+    summarize_memory_node,
     tool_node,
 )
 
 
 # 节点名称常量，供 graph.py 统一引用
 NODE_INPUT = "input"
+NODE_SUMMARIZE_MEMORY = "summarize_memory"
 NODE_REWRITE = "rewrite_query"
 NODE_ROUTE = "route"
 NODE_TOOL = "tool"
@@ -56,13 +58,14 @@ def judge_router(state) -> str:
 def add_edges(graph) -> None:
     """
     向 StateGraph 注册节点并连线。
-    顺序：START -> input -> rewrite_query -> route -> tool -> llm -> judge
+    顺序：START -> input -> summarize_memory -> rewrite_query -> route -> tool -> llm -> judge
           judge -> output / route
 
     Args:
         graph: langgraph 的 StateGraph 实例
     """
     graph.add_node(NODE_INPUT, input_node)
+    graph.add_node(NODE_SUMMARIZE_MEMORY, summarize_memory_node)
     graph.add_node(NODE_REWRITE, rewrite_node)
     graph.add_node(NODE_ROUTE, route_node)
     graph.add_node(NODE_TOOL, tool_node)
@@ -71,7 +74,8 @@ def add_edges(graph) -> None:
     graph.add_node(NODE_OUTPUT, output_node)
 
     graph.add_edge(START, NODE_INPUT)
-    graph.add_edge(NODE_INPUT, NODE_REWRITE)
+    graph.add_edge(NODE_INPUT, NODE_SUMMARIZE_MEMORY)
+    graph.add_edge(NODE_SUMMARIZE_MEMORY, NODE_REWRITE)
     graph.add_edge(NODE_REWRITE, NODE_ROUTE)
     graph.add_edge(NODE_ROUTE, NODE_TOOL)
     graph.add_edge(NODE_TOOL, NODE_LLM)

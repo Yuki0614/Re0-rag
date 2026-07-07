@@ -61,6 +61,7 @@ class QueryResponse(BaseModel):
     documents: list[dict[str, Any]]
     route_history: list[dict[str, Any]]
     judge_result: dict[str, Any]
+    memory_summary_result: dict[str, Any]
 
 
 class SettingsPayload(BaseModel):
@@ -276,12 +277,17 @@ def _result_payload(result: dict[str, Any], thread_id: str) -> dict[str, Any]:
         "documents": _compact_evidence(result.get("documents") or []),
         "route_history": result.get("route_history") or [],
         "judge_result": result.get("judge_result") or {},
+        "memory_summary_result": result.get("memory_summary_result") or {},
     }
 
 
 def _progress_message(line: str) -> str | None:
     if "[输入]" in line:
         return "已收到问题"
+    if "[记忆]" in line:
+        if "正在摘要" in line:
+            return "正在压缩对话记忆"
+        return "已压缩对话记忆"
     if "[改写]" in line:
         return "正在改写 query"
     if "[路由]" in line:
@@ -335,7 +341,7 @@ def _stream_query(payload: QueryRequest):
         try:
             from re0rag.graph import run
 
-            events.put({"type": "progress", "status": "正在改写 query", "detail": "启动 RAG 工作流"})
+            events.put({"type": "progress", "status": "启动 RAG 工作流", "detail": "启动 RAG 工作流"})
             writer = QueueWriter(events)
             with contextlib.redirect_stdout(writer):
                 result = run(question, thread_id=thread_id, verbose=True)

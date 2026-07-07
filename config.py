@@ -129,6 +129,32 @@ LLM_MAX_TOKENS = 1024    # 单次回答最大 token 数
 
 
 # ──────────────────────────────────────────────
+# 多轮记忆摘要配置
+# messages 超过阈值后，将最早若干条对话压缩进 conversation_summary，
+# 再从 messages 中删除，避免长对话无限膨胀。
+# ──────────────────────────────────────────────
+MEMORY_SUMMARY_TRIGGER_MESSAGES = 10
+MEMORY_SUMMARY_CHUNK_MESSAGES = 6
+MEMORY_SUMMARY_MAX_CHARS = 1800
+
+MEMORY_SUMMARY_SYSTEM_PROMPT = (
+    "你是一个严谨的对话记忆整理助手。你的任务是更新长期对话摘要，"
+    "用于后续多轮问答中的指代消解和上下文延续。"
+    "请只总结用户与助手已经明确讨论过的信息，不要编造。"
+    "摘要应保留用户目标、约束、偏好、已确认的实现决策、正在讨论的论文/方法/实验对象，"
+    "以及对后续理解“它”“这个”“上面的方法”等指代有帮助的信息。"
+    "不要保留寒暄、重复表达、临时进度、无关细节。"
+    "摘要不是论文事实证据，不能把检索片段中未被对话明确采用的信息写成事实。"
+)
+
+MEMORY_SUMMARY_USER_PROMPT_TEMPLATE = (
+    "已有长期摘要：\n{summary}\n\n"
+    "本次需要归档的早期对话：\n{history}\n\n"
+    "请输出更新后的长期摘要，控制在 {max_chars} 个中文字符以内。"
+)
+
+
+# ──────────────────────────────────────────────
 # Prompt 模板
 # {question} 用户问题，{context} 检索到的片段拼接文本
 # context 中已由 format_context 拼入所属论文的标题/期刊/作者/摘要，
@@ -161,7 +187,8 @@ REWRITE_SYSTEM_PROMPT = (
 )
 
 REWRITE_USER_PROMPT_TEMPLATE = (
-    "对话历史：\n{history}\n\n"
+    "长期对话摘要：\n{summary}\n\n"
+    "最近对话历史：\n{history}\n\n"
     "当前问题：{question}\n\n"
     "改写后的检索查询："
 )

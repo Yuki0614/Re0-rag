@@ -13,6 +13,7 @@ class RAGState(MessagesState):
 
     字段流转：
         input_node      -> question, retry_count, max_retries, messages(追加 HumanMessage)
+        summarize_memory_node -> conversation_summary, memory_summary_result, messages(删除已摘要旧消息)
         rewrite_node    -> rewritten_query
         route_node      -> route_decision, selected_tool, tool_query, route_history
         tool_node       -> tool_results, evidence, sources
@@ -21,10 +22,15 @@ class RAGState(MessagesState):
         output_node     -> 输出并附带 sources / judge_result
 
     messages 字段由 MessagesState 提供，带 add_messages reducer（追加语义），
-    累积全部对话历史，供 rewrite_node 与 llm_node 读取上文。
+    累积近期对话历史，供 rewrite_node 与 llm_node 读取上文。
+    conversation_summary 保存被压缩的早期对话摘要。
     """
     # 节点1 输入：用户提问原文
     question: str
+
+    # 记忆摘要：超过阈值的早期 messages 会压缩进这里
+    conversation_summary: str
+    memory_summary_result: dict
 
     # 节点2 查询改写：消解指代后的独立检索 query
     rewritten_query: str

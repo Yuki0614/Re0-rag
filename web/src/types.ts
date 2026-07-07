@@ -33,6 +33,11 @@ export type QueryResult = {
     reason?: string;
     suggested_action?: string;
   };
+  memory_summary_result?: {
+    triggered?: boolean;
+    removed_count?: number;
+    summary_length?: number;
+  };
 };
 
 export type FlowStep = {

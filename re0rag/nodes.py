@@ -13,7 +13,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import config
 
-from langchain_core.messages import AIMessage, HumanMessage
+from langchain_core.messages import AIMessage, HumanMessage, RemoveMessage, SystemMessage
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
 
@@ -76,6 +76,12 @@ def _format_history(messages: list) -> str:
     return "\n".join(lines) if lines else "（无）"
 
 
+def _format_summary(summary: str | None) -> str:
+    """把长期摘要格式化为 prompt 片段。"""
+    summary = (summary or "").strip()
+    return summary if summary else "（无）"
+
+
 def _history_before_current_question(messages: list, question: str) -> list:
     """
     取当前问题之前的对话历史。
@@ -100,6 +106,65 @@ def _as_bool(value, default: bool = False) -> bool:
     return default
 
 
+@trace_span(
+    "rag.memory_summary",
+    attributes=lambda args, kwargs, result: {
+        "summary.length": len((result or {}).get("conversation_summary") or ""),
+        "removed.count": len((result or {}).get("messages") or []),
+    },
+)
+def summarize_memory_node(state: RAGState) -> dict:
+    """
+    长对话记忆压缩节点。
+    当 messages 超过阈值时，把最早若干条对话合并进 conversation_summary，
+    并通过 RemoveMessage 从 MessagesState 中删除这些旧消息。
+    """
+    messages = list(state.get("messages") or [])
+    trigger = int(config.MEMORY_SUMMARY_TRIGGER_MESSAGES)
+    chunk_size = int(config.MEMORY_SUMMARY_CHUNK_MESSAGES)
+    if len(messages) <= trigger:
+        return {}
+
+    to_summarize = messages[:chunk_size]
+    removable = [msg for msg in to_summarize if getattr(msg, "id", None)]
+    if not removable:
+        print("[记忆] 历史超过阈值，但旧消息缺少 id，跳过摘要压缩")
+        return {}
+
+    old_summary = _format_summary(state.get("conversation_summary"))
+    archived_history = _format_history(to_summarize)
+    print(f"[记忆] 历史消息 {len(messages)} 条，正在摘要前 {len(removable)} 条旧消息")
+
+    prompt = ChatPromptTemplate.from_messages(
+        [
+            ("system", config.MEMORY_SUMMARY_SYSTEM_PROMPT),
+            ("user", config.MEMORY_SUMMARY_USER_PROMPT_TEMPLATE),
+        ]
+    )
+    llm = _make_llm()
+    response = (prompt | llm).invoke(
+        {
+            "summary": old_summary,
+            "history": archived_history,
+            "max_chars": config.MEMORY_SUMMARY_MAX_CHARS,
+        }
+    )
+    new_summary = response.content.strip()
+    if len(new_summary) > config.MEMORY_SUMMARY_MAX_CHARS:
+        new_summary = new_summary[: config.MEMORY_SUMMARY_MAX_CHARS].rstrip()
+
+    print(f"[记忆] 已摘要 {len(removable)} 条旧消息，摘要长度: {len(new_summary)} 字符")
+    return {
+        "conversation_summary": new_summary,
+        "memory_summary_result": {
+            "triggered": True,
+            "removed_count": len(removable),
+            "summary_length": len(new_summary),
+        },
+        "messages": [RemoveMessage(id=msg.id) for msg in removable],
+    }
+
+
 @trace_span("rag.input")
 def input_node(state: RAGState) -> dict:
     """
@@ -117,6 +182,7 @@ def input_node(state: RAGState) -> dict:
         "max_retries": config.AGENT_MAX_RETRIES,
         "route_history": [],
         "judge_result": {},
+        "memory_summary_result": {},
         "messages": [HumanMessage(content=question)],
     }
 
@@ -136,6 +202,7 @@ def rewrite_node(state: RAGState) -> dict:
     question = state["question"]
     # messages 由 add_messages 累积，含本轮 HumanMessage 与历史
     history = _format_history(state.get("messages", [])[:-1])  # 去掉刚追加的本轮问题
+    summary = _format_summary(state.get("conversation_summary"))
 
     prompt = ChatPromptTemplate.from_messages(
         [
@@ -145,7 +212,7 @@ def rewrite_node(state: RAGState) -> dict:
     )
     llm = _make_llm()
     chain = prompt | llm
-    response = chain.invoke({"history": history, "question": question})
+    response = chain.invoke({"summary": summary, "history": history, "question": question})
     rewritten = response.content.strip()
 
     print(f"[改写] 检索 query: {rewritten}")
@@ -265,7 +332,18 @@ def llm_node(state: RAGState) -> dict:
     messages = prompt.format_messages(context=context, question=question)
     # 前置历史对话（不含本轮问题及本轮内部失败候选答案）
     history = _history_before_current_question(state.get("messages", []), question)
-    full_messages = history + messages
+    summary = (state.get("conversation_summary") or "").strip()
+    if summary:
+        summary_message = SystemMessage(
+            content=(
+                "此前对话摘要如下，仅用于理解用户指代和延续对话；"
+                "回答论文事实问题时仍必须以本轮检索证据为准。\n"
+                f"{summary}"
+            )
+        )
+        full_messages = messages[:1] + [summary_message] + history + messages[1:]
+    else:
+        full_messages = history + messages
 
     response = llm.invoke(full_messages)
     answer = response.content
