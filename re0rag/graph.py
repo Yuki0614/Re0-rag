@@ -1,6 +1,6 @@
 """
 RAG 查询生成图：组装 Agentic RAG StateGraph，编译并提供 run 入口。
-流程：input -> rewrite_query -> route -> tool -> llm -> judge -> output
+流程：input -> rewrite_query -> route -> tool -> graph_retrieval -> llm -> judge -> output
 judge 不通过且未超过重试上限时，回到 route 重新选择 tool。
 多轮对话：编译时挂 MemorySaver 检查点，用 thread_id 区分会话，
 state（含 messages 历史）跨 invoke 自动保留。

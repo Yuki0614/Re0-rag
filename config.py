@@ -113,6 +113,14 @@ AGENT_ALLOWED_TOOLS = ["vector_search", "keyword_search", "no_retrieval"]
 VECTOR_TOP_K = RETRIEVE_TOP_K
 KEYWORD_TOP_K = 4
 TABLE_TOP_K = 3       # 表格 evidence 辅助召回数量；与正文 evidence 合并使用
+GRAPH_TOP_K = 8       # 图谱关系扩展返回的论文数量
+GRAPH_ENABLED = _env("RE0RAG_GRAPH_ENABLED", default="1").lower() not in {"0", "false", "no", "off"}
+GRAPH_BACKEND = _env("RE0RAG_GRAPH_BACKEND", default="neo4j").lower()
+NEO4J_URI = _env("RE0RAG_NEO4J_URI")
+NEO4J_USERNAME = _env("RE0RAG_NEO4J_USERNAME", default="neo4j")
+NEO4J_PASSWORD = _env("RE0RAG_NEO4J_PASSWORD")
+NEO4J_DATABASE = _env("RE0RAG_NEO4J_DATABASE", default="neo4j")
+NEO4J_NAMESPACE = _env("RE0RAG_NEO4J_NAMESPACE", default="re0rag")
 
 
 # ──────────────────────────────────────────────
@@ -200,10 +208,13 @@ REWRITE_USER_PROMPT_TEMPLATE = (
 # ──────────────────────────────────────────────
 ROUTE_SYSTEM_PROMPT = (
     "你是一个本地论文问答系统的检索路由器。你的任务是根据用户问题、改写后的检索 query、"
-    "历史失败原因，选择下一步应该调用的本地 tool。只能使用以下三种 action：\n"
+    "历史失败原因，选择一个主检索工具，并判断是否需要额外使用文献索引图谱。主检索只能使用以下三种 action：\n"
     "1. vector_search：适合语义解释、机制总结、方法比较、需要理解同义表达的问题。\n"
     "2. keyword_search：适合论文标题、模型名、数据集名、指标名、缩写、公式编号、表格编号等精确词匹配。\n"
     "3. no_retrieval：仅适合寒暄、系统操作、改写问题、与入库论文事实无关的问题。\n"
+    "use_graph 是独立的辅助开关，不与主检索三选一。问题涉及论文标题、作者、年份、期刊/会议、"
+    "领域、关键词、某作者的其他论文、同领域研究或论文之间的关系时，use_graph 必须为 true。"
+    "这类论文事实问题仍应选择 vector_search 或 keyword_search 作为主检索，不要因为启用图谱就选择 no_retrieval。\n"
     "硬性规则：只要问题涉及论文内容、模型结构、实验结果、数据集、指标、结论或引用依据，就必须检索，不能选择 no_retrieval。\n"
     "如果上一轮检查失败，请根据失败原因换用更合适的 tool 或调整 query，避免重复无效检索。\n"
     "只输出 JSON，不要输出 markdown 代码块或解释文字。"
@@ -215,7 +226,8 @@ ROUTE_USER_PROMPT_TEMPLATE = (
     "上一轮检查结果/失败原因：\n{judge_feedback}\n\n"
     "已尝试过的 route：\n{route_history}\n\n"
     "请输出严格 JSON，格式如下：\n"
-    '{{"action": "vector_search|keyword_search|no_retrieval", "query": "用于 tool 的查询文本", "reason": "选择原因"}}'
+    '{{"action": "vector_search|keyword_search|no_retrieval", "use_graph": true, '
+    '"query": "用于主检索和图谱检索的查询文本", "reason": "选择原因"}}'
 )
 
 
@@ -237,14 +249,14 @@ JUDGE_USER_PROMPT_TEMPLATE = (
     "请输出严格 JSON，格式如下：\n"
     '{{"passed": true, "answers_question": true, "answer_supported": true, '
     '"has_hallucination": false, "reason": "判断理由", '
-    '"suggested_action": "finish|vector_search|keyword_search", '
+    '"suggested_action": "finish|vector_search|keyword_search", "suggest_graph": false, '
     '"suggested_query": "如果需要重试，给出新的查询；否则为空字符串"}}'
 )
 
 
 # ──────────────────────────────────────────────
 # 论文元数据抽取配置
-# 导入论文时用 LLM 从转好的 Markdown 抽取 标题/作者/期刊/摘要 四字段。
+# 导入论文时用 LLM 从转好的 Markdown 抽取书目信息与摘要。
 # LLM 复用上面的 LLM_BASE_URL / LLM_API_KEY / LLM_MODEL，仅温度单独调低。
 # ──────────────────────────────────────────────
 META_DIR = PROJECT_ROOT / "db" / "meta"          # 元数据 JSON 目录（与 chunks 平级）
@@ -261,18 +273,23 @@ META_LLM_SYSTEM_PROMPT = (
     "你是论文元数据抽取助手。系统给出两份同一论文的文本来源：一份 Markdown、一份 PDF 首页原样文本。"
     "系统还会给出若干“摘要候选片段”，这些片段来自 Abstract、A B S T R A C T、摘要等标记附近。"
     "综合这些证据抽取以下字段，返回严格 JSON：\n"
-    '{{"title": str|null, "authors": [str]|null, "journal": str|null, "abstract": str|null}}\n'
+    '{{"title": str|null, "authors": [str]|null, "journal": str|null, "year": int|null, '
+    '"fields": [str]|null, "keywords": [str]|null, "abstract": str|null}}\n'
     "字段说明：\n"
     "- title：论文完整标题（去掉任何 Markdown 标记如 \"## \"、去掉期刊名前缀，只留标题本身）。\n"
     "- authors：作者姓名列表（仅人名，去掉 \"Member, IEEE\" 等会员修饰）。若作者无逗号分隔，按姓名边界分别切分。\n"
     "- journal：期刊名或会议名。若论文无明确期刊/会议信息（如 arXiv 预印本页眉只有 \"arXiv:xxxx\"），返回 null，不要编造。\n"
+    "- year：论文发表年份，只在文本中有明确年份时返回四位整数。\n"
+    "- fields：根据标题和摘要归一为 1-3 个宽粒度研究领域，如 Natural Language Processing、Computer Vision、"
+    "Information Retrieval、Large Language Models、Knowledge Graphs。领域允许依据标题和摘要分类，但不要写过细的自由短语。\n"
+    "- keywords：只抽取论文明确给出的关键词；没有关键词栏时返回 null，不要从摘要自行生成。\n"
     "- abstract：论文摘要原文。优先使用摘要候选片段或 PDF 首页/前几页文本中的 Abstract 段完整摘录；"
     "注意 Elsevier 论文可能写成 \"A B S T R A C T\"，IEEE 双栏论文可能在 Markdown 中丢失 Abstract 标题。"
     "若 Markdown 里 Introduction 标题先于 A B S T R A C T 出现，不要因此忽略后面的摘要候选。"
     "若无显式 Abstract，但标题/作者附近存在对论文整体工作的原文概述段，可作为 abstract。"
     "不要改写、不要翻译、不要总结。\n"
     "硬性要求：\n"
-    "- 任何在文本中找不到依据的字段必须返回 null。禁止编造、禁止臆测。\n"
+    "- 除 fields 可依据标题和摘要做宽粒度分类外，任何在文本中找不到依据的字段必须返回 null。禁止编造、禁止臆测。\n"
     "- 只输出 JSON，不要加 markdown 代码块，不要加任何解释。"
 )
 

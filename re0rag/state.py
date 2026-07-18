@@ -15,8 +15,9 @@ class RAGState(MessagesState):
         input_node      -> question, retry_count, max_retries, messages(追加 HumanMessage)
         summarize_memory_node -> conversation_summary, memory_summary_result, messages(删除已摘要旧消息)
         rewrite_node    -> rewritten_query
-        route_node      -> route_decision, selected_tool, tool_query, route_history
+        route_node      -> route_decision, selected_tool, use_graph, tool_query, route_history
         tool_node       -> tool_results, evidence, sources
+        graph_retrieval_node -> graph_results, graph_evidence, evidence, sources
         llm_node        -> answer, messages(追加 AIMessage)
         judge_node      -> judge_result, retry_count
         output_node     -> 输出并附带 sources / judge_result
@@ -38,6 +39,7 @@ class RAGState(MessagesState):
     # 节点3 路由：LLM 选择 tool，并给出 tool 查询
     route_decision: dict
     selected_tool: str
+    use_graph: bool
     tool_query: str
     route_history: list[dict]
 
@@ -50,6 +52,8 @@ class RAGState(MessagesState):
     question_vector: list[float]
     documents: list[dict]   # child 命中 [{content, metadata, child_index, parent_id, parent_index, score}]
     parents: list[dict]     # 召回的 parent 全文 [{parent_id, content, parent_index, metadata, hit_child_indices}]
+    graph_results: dict
+    graph_evidence: list[dict]
 
     # 节点5 生成：LLM 回答
     answer: str

@@ -51,6 +51,9 @@ def format_context(documents: list[dict]) -> str:
 
     blocks = []
     for i, doc in enumerate(documents, start=1):
+        if doc.get("doc_type") == "graph":
+            blocks.append(_format_graph_context(i, doc))
+            continue
         if doc.get("doc_type") == "table" or doc.get("metadata", {}).get("doc_type") == "table":
             blocks.append(_format_table_context(i, doc))
             continue
@@ -76,6 +79,17 @@ def format_context(documents: list[dict]) -> str:
         body_parts.append(f"章节内容:\n{content}")
         blocks.append(f"{header}\n" + "\n\n".join(body_parts))
     return "\n\n".join(blocks)
+
+
+def _format_graph_context(i: int, doc: dict) -> str:
+    """Format bibliographic facts and traversal paths as explicit graph evidence."""
+    metadata = doc.get("metadata") or {}
+    title = metadata.get("title") or metadata.get("source") or "未知论文"
+    paths = doc.get("graph_paths") or []
+    header = f"[图谱{i}] 论文: {title}"
+    if paths:
+        header += " | 关系路径: " + " ; ".join(paths)
+    return header + "\n" + (doc.get("content") or "")
 
 
 def _format_table_context(i: int, doc: dict) -> str:
@@ -136,6 +150,12 @@ def format_sources(parents: list[dict], n_hits: int = 0) -> list[str]:
     sources = []
     for i, doc in enumerate(parents, start=1):
         m = doc.get("metadata", {})
+        if doc.get("doc_type") == "graph":
+            title = m.get("title") or m.get("source", "未知来源")
+            paths = doc.get("graph_paths") or []
+            suffix = f" / {paths[0]}" if paths else ""
+            sources.append(f"[G{i}] {title}{suffix}")
+            continue
         if doc.get("doc_type") == "table" or m.get("doc_type") == "table":
             title = m.get("title") or m.get("source", "未知来源")
             caption = doc.get("caption") or f"table {doc.get('table_index', '?')}"
@@ -186,9 +206,10 @@ def format_route_history(route_history: list[dict] | None) -> str:
     lines = []
     for i, item in enumerate(route_history, start=1):
         action = item.get("action", "")
+        use_graph = item.get("use_graph", False)
         query = item.get("query", "")
         reason = item.get("reason", "")
-        lines.append(f"{i}. action={action}; query={query}; reason={reason}")
+        lines.append(f"{i}. action={action}; use_graph={use_graph}; query={query}; reason={reason}")
     return "\n".join(lines)
 
 
@@ -203,5 +224,6 @@ def format_judge_feedback(judge_result: dict | None) -> str:
         f"has_hallucination={judge_result.get('has_hallucination')}; "
         f"reason={judge_result.get('reason')}; "
         f"suggested_action={judge_result.get('suggested_action')}; "
+        f"suggest_graph={judge_result.get('suggest_graph')}; "
         f"suggested_query={judge_result.get('suggested_query')}"
     )

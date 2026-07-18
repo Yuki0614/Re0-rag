@@ -20,7 +20,8 @@ from langchain_openai import ChatOpenAI
 from trace.telemetry import trace_span
 
 from .state import RAGState
-from .tools import run_tool
+from .tools import graph_search_tool, run_tool
+from db.literature_graph import is_graph_enabled
 from .utils import (
     build_prompt,
     format_evidence,
@@ -255,6 +256,7 @@ def route_node(state: RAGState) -> dict:
 
     fallback = {
         "action": "vector_search",
+        "use_graph": False,
         "query": rewritten_query,
         "reason": "route JSON 解析失败，保守回退到向量检索",
     }
@@ -263,19 +265,24 @@ def route_node(state: RAGState) -> dict:
     if action not in config.AGENT_ALLOWED_TOOLS:
         action = "vector_search"
     query = (decision.get("query") or rewritten_query or question).strip()
+    requested_graph = _as_bool(decision.get("use_graph"))
+    use_graph = requested_graph and is_graph_enabled()
     reason = decision.get("reason") or ""
+    if requested_graph and not use_graph:
+        reason = (reason + "; " if reason else "") + "图谱功能当前不可用，已降级为主检索"
 
-    decision = {"action": action, "query": query, "reason": reason}
+    decision = {"action": action, "use_graph": use_graph, "query": query, "reason": reason}
     route_history = list(state.get("route_history") or [])
     route_history.append(decision)
 
-    print(f"[路由] tool={action} query={query}")
+    print(f"[路由] tool={action} graph={'on' if use_graph else 'off'} query={query}")
     if reason:
         print(f"[路由] 原因: {reason}")
 
     return {
         "route_decision": decision,
         "selected_tool": action,
+        "use_graph": use_graph,
         "tool_query": query,
         "route_history": route_history,
     }
@@ -309,6 +316,38 @@ def tool_node(state: RAGState) -> dict:
         "evidence": evidence,
         "sources": sources,
         "question_vector": result.get("query_vector", []),
+    }
+
+
+@trace_span(
+    "rag.graph_retrieval",
+    attributes=lambda args, kwargs, result: {
+        "enabled": bool((result or {}).get("graph_results")),
+        "evidence.count": len((result or {}).get("graph_evidence") or []),
+    },
+)
+def graph_retrieval_node(state: RAGState) -> dict:
+    """Optionally append bibliographic graph evidence after the primary retrieval."""
+    if not state.get("use_graph"):
+        return {"graph_results": {}, "graph_evidence": []}
+
+    query = state.get("tool_query") or state.get("rewritten_query") or state["question"]
+    result = graph_search_tool(query)
+    graph_evidence = result.get("evidence") or []
+    evidence = list(state.get("evidence") or []) + graph_evidence
+    sources = list(state.get("sources") or [])
+    sources.extend(source for source in result.get("sources") or [] if source not in sources)
+    tool_results = list(state.get("tool_results") or []) + [result]
+
+    print(f"[图谱] {result.get('summary')}")
+    for source in result.get("sources") or []:
+        print(f"  - {source}")
+    return {
+        "graph_results": result,
+        "graph_evidence": graph_evidence,
+        "tool_results": tool_results,
+        "evidence": evidence,
+        "sources": sources,
     }
 
 
@@ -390,6 +429,7 @@ def judge_node(state: RAGState) -> dict:
         "has_hallucination": True,
         "reason": "judge JSON 解析失败，保守判定为未通过",
         "suggested_action": "vector_search",
+        "suggest_graph": False,
         "suggested_query": state.get("rewritten_query") or question,
     }
     result = parse_llm_json(response.content, fallback=fallback)
@@ -413,6 +453,7 @@ def judge_node(state: RAGState) -> dict:
         "has_hallucination": has_hallucination,
         "reason": result.get("reason") or "",
         "suggested_action": suggested_action,
+        "suggest_graph": _as_bool(result.get("suggest_graph")),
         "suggested_query": result.get("suggested_query") or "",
     }
 

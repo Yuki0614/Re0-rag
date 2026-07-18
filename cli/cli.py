@@ -43,26 +43,29 @@ def _print_quiet_answer(result: dict) -> None:
 
 
 def _import_pdf(pdf_path: Path) -> None:
-    """导入单个 PDF：PDF → Markdown → chunks → embeddings → Qdrant。"""
+    """导入单个 PDF：PDF → Markdown → chunks → embeddings → Qdrant → graph。"""
     from db.chunk import save_split, split_markdown
     from db.embedding import embed_chunks, embed_tables, get_embedding_model
     from db.loader import pdf_to_markdown
     from db.meta import extract_metadata, save_metadata
     from db.manager import delete_by_source, insert_chunks, insert_tables
+    from db.literature_graph import graph_status, upsert_paper
 
-    print(f"[1/5] PDF → Markdown: {pdf_path.name}")
+    print(f"[1/6] PDF → Markdown: {pdf_path.name}")
     md_path = pdf_to_markdown(pdf_path, DOCS_DIR)
     print(f"      输出: {md_path}")
 
-    print("[2/5] 论文元数据抽取（LLM）")
+    print("[2/6] 论文元数据抽取（LLM）")
     meta = extract_metadata(pdf_path, md_path)
     meta_path = save_metadata(meta, META_DIR / f"{pdf_path.stem}_meta.json")
     print(f"      标题: {meta.get('title') or '(未识别)'}")
     print(f"      期刊: {meta.get('journal') or '(未识别)'}")
+    print(f"      年份: {meta.get('year') or '(未识别)'}")
+    print(f"      领域: {', '.join(meta.get('fields') or []) or '(未识别)'}")
     print(f"      作者: {', '.join(meta.get('authors') or []) or '(未识别)'}")
     print(f"      已保存: {meta_path}")
 
-    print("[3/5] Markdown → Tables / Parent-Child Chunks")
+    print("[3/6] Markdown → Tables / Parent-Child Chunks")
     # split_data: {tables, parents, children}
     split_data = split_markdown(md_path, pdf_path=pdf_path)
     tables = split_data["tables"]
@@ -78,6 +81,9 @@ def _import_pdf(pdf_path: Path) -> None:
         "title": meta.get("title"),
         "authors": meta.get("authors"),
         "journal": meta.get("journal"),
+        "year": meta.get("year"),
+        "fields": meta.get("fields"),
+        "keywords": meta.get("keywords"),
         "abstract": meta.get("abstract"),
     }
     for plist in (parents, children):
@@ -98,18 +104,26 @@ def _import_pdf(pdf_path: Path) -> None:
     print(f"      表格 {len(tables)} 张 / parent {len(parents)} 块 / child {len(children)} 块")
     print(f"      已保存: {paper_dir}")
 
-    print("[4/5] Children / Tables → Embeddings (all-MiniLM-L6-v2)")
+    print("[4/6] Children / Tables → Embeddings (all-MiniLM-L6-v2)")
     model = get_embedding_model()
     children = embed_chunks(children, model)
     tables_for_index = embed_tables(tables, model) if tables else []
     print(f"      向量化完成，维度: {len(children[0]['embedding']) if children else 0}")
 
-    print("[5/5] Children / Tables 存入 Qdrant（替换同名文档旧索引；parents 仅落盘不入库）")
+    print("[5/6] Children / Tables 存入 Qdrant（替换同名文档旧索引；parents 仅落盘不入库）")
     delete_by_source(f"{pdf_path.stem}.md")
     count = insert_chunks(children) if children else 0
     table_count = insert_tables(tables_for_index) if tables_for_index else 0
     print(f"      已写入 {count} 条 child 记录")
     print(f"      已写入 {table_count} 条 table 记录")
+
+    print("[6/6] 更新文献索引图谱")
+    upsert_paper(meta)
+    status = graph_status()
+    if status.get("enabled"):
+        print("      已写入 Neo4j: Paper / Author / Year / Venue / Field / Keyword 节点与关系")
+    else:
+        print(f"      图谱已降级关闭: {status.get('reason') or 'Neo4j 不可用'}")
 
     print(f"\n完成！文档 '{pdf_path.name}' 已入库。")
 
@@ -189,6 +203,7 @@ def cmd_delete(args: list[str]) -> int:
     """
     _reconfigure_stdout_utf8()
     from db.manager import delete_by_source, list_sources
+    from db.literature_graph import delete_paper
 
     if not args:
         print("用法: python main.py -cli delete <文档名>")
@@ -209,6 +224,7 @@ def cmd_delete(args: list[str]) -> int:
 
     # 1) 删除 Qdrant 记录
     delete_by_source(source)
+    delete_paper(source)
     print(f"[1/2] 已从向量库删除: {source}")
 
     # 2) 清理本地文件（.md / chunks 目录 / meta.json）
@@ -279,6 +295,26 @@ def cmd_reindex_keywords(args: list[str]) -> int:
     return 0
 
 
+def cmd_reindex_graph(args: list[str]) -> int:
+    """Rebuild the Neo4j literature graph from saved metadata files."""
+    _reconfigure_stdout_utf8()
+    from db.literature_graph import rebuild_graph
+
+    print("Rebuilding Neo4j literature graph from db/meta ...")
+    result = rebuild_graph()
+    if not result.get("enabled"):
+        print(f"Graph is disabled: {result.get('reason') or 'Neo4j unavailable'}")
+        return 0
+    node_summary = ", ".join(
+        f"{node_type}={count}" for node_type, count in sorted(result["nodes"].items())
+    )
+    print(
+        f"Done: indexed={result['indexed']}, skipped={result['skipped']}, "
+        f"edges={result['edges']}; {node_summary or 'no nodes'}"
+    )
+    return 0
+
+
 def cmd_query(args: list[str], trace: bool = False) -> int:
     """
     RAG 问答：输入问题，走 input→summarize_memory→rewrite→route→tool→llm→judge→output 链路。
@@ -343,6 +379,7 @@ COMMANDS = {
     "delete": cmd_delete,
     "list": cmd_list,
     "reindex-keywords": cmd_reindex_keywords,
+    "reindex-graph": cmd_reindex_graph,
     "query": cmd_query,
 }
 

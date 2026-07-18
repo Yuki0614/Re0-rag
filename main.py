@@ -17,6 +17,7 @@ def _run_cli(argv: list[str]) -> int:
         print("commands:")
         print("  import <PDF path or directory path>")
         print("  reindex-keywords")
+        print("  reindex-graph")
         print("  delete <source.md>")
         print("  list")
         print("  query [-t] <question>")

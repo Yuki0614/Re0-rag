@@ -16,6 +16,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import config
 
 from db.embedding import get_embedding_model
+from db.literature_graph import graph_status, search_graph
 from db.manager import (
     fetch_linked_tables,
     fetch_parents,
@@ -134,6 +135,56 @@ def no_retrieval_tool(query: str) -> dict:
 
 
 @trace_span(
+    "tool.graph_search",
+    attributes=lambda args, kwargs, result: {
+        "top_k": kwargs.get("top_k") or config.GRAPH_TOP_K,
+        "evidence.count": len((result or {}).get("evidence") or []),
+    },
+)
+def graph_search_tool(query: str, top_k: int | None = None) -> dict:
+    """Search bibliographic relationships and return explainable graph paths."""
+    status = graph_status()
+    if not status.get("enabled"):
+        return {
+            "tool": "graph_search",
+            "query": query,
+            "documents": [],
+            "evidence": [],
+            "parents": [],
+            "sources": [],
+            "summary": f"图谱检索已关闭：{status.get('reason') or 'Neo4j 不可用'}",
+        }
+    evidence = search_graph(query, top_k=top_k or config.GRAPH_TOP_K)
+    status = graph_status()
+    if not status.get("enabled"):
+        return {
+            "tool": "graph_search",
+            "query": query,
+            "documents": [],
+            "evidence": [],
+            "parents": [],
+            "sources": [],
+            "summary": f"图谱检索已降级关闭：{status.get('reason') or 'Neo4j 不可用'}",
+        }
+    sources = []
+    for index, item in enumerate(evidence, start=1):
+        metadata = item.get("metadata") or {}
+        title = metadata.get("title") or metadata.get("source") or "未知论文"
+        paths = item.get("graph_paths") or []
+        suffix = f" | {paths[0]}" if paths else ""
+        sources.append(f"[G{index}] {title}{suffix}")
+    return {
+        "tool": "graph_search",
+        "query": query,
+        "documents": [],
+        "evidence": evidence,
+        "parents": [],
+        "sources": sources,
+        "summary": f"图谱检索返回 {len(evidence)} 篇论文及其关系路径",
+    }
+
+
+@trace_span(
     "tool.run",
     attributes=lambda args, kwargs, result: {
         "action": args[0] if args else kwargs.get("action"),
@@ -149,6 +200,8 @@ def run_tool(action: str, query: str) -> dict:
         return keyword_search_tool(query)
     if action == "no_retrieval":
         return no_retrieval_tool(query)
+    if action == "graph_search":
+        return graph_search_tool(query)
     return vector_search_tool(query)
 
 

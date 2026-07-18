@@ -221,12 +221,14 @@ def _list_sources() -> list[dict[str, Any]]:
 
 def _delete_source(source: str) -> None:
     from db.manager import delete_by_source, list_sources
+    from db.literature_graph import delete_paper
 
     existing = {item["source"] for item in list_sources()}
     if source not in existing:
         raise ValueError(f"Source not found: {source}")
 
     delete_by_source(source)
+    delete_paper(source)
     stem = Path(source).stem
     paths = [
         config.DOCS_DIR / source,
@@ -294,6 +296,8 @@ def _progress_message(line: str) -> str | None:
         return "正在选择检索策略"
     if "[工具]" in line:
         return "正在检索本地知识库"
+    if "[图谱]" in line:
+        return "正在检索文献关系图谱"
     if "[生成]" in line:
         return "正在生成回答"
     if "[检查" in line:

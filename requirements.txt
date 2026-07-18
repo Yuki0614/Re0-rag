@@ -14,3 +14,4 @@ pytest
 fastapi
 uvicorn
 python-multipart
+neo4j

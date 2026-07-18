@@ -36,7 +36,7 @@ def extract_metadata(pdf_path: str | Path, md_path: str | Path) -> dict:
         md_path:  转好的 Markdown 路径（喂给 LLM）
 
     Returns:
-        {source, pdf_stem, title, authors, journal, abstract,
+        {source, pdf_stem, title, authors, journal, year, fields, keywords, abstract,
          method: {字段: llm|none}, confidence: {字段: ...}}
     """
     pdf_path = Path(pdf_path)
@@ -47,9 +47,10 @@ def extract_metadata(pdf_path: str | Path, md_path: str | Path) -> dict:
         "source": source,
         "pdf_stem": pdf_path.stem,
         "title": None, "authors": None,
-        "journal": None, "abstract": None,
-        "method": {k: "none" for k in ("title", "authors", "journal", "abstract")},
-        "confidence": {k: 0.0 for k in ("title", "authors", "journal", "abstract")},
+        "journal": None, "year": None, "fields": None, "keywords": None,
+        "abstract": None,
+        "method": {k: "none" for k in ("title", "authors", "journal", "year", "fields", "keywords", "abstract")},
+        "confidence": {k: 0.0 for k in ("title", "authors", "journal", "year", "fields", "keywords", "abstract")},
     }
 
     if not config.META_LLM_ENABLED:
@@ -63,7 +64,7 @@ def extract_metadata(pdf_path: str | Path, md_path: str | Path) -> dict:
     if not result:
         return meta
 
-    for k in ("title", "authors", "journal", "abstract"):
+    for k in ("title", "authors", "journal", "year", "fields", "keywords", "abstract"):
         val = result.get(k)
         if val:
             if isinstance(val, str):
@@ -248,7 +249,9 @@ def _llm_extract(evidence: dict) -> dict:
             return {}
         return {
             "title": r.get("title"), "authors": r.get("authors"),
-            "journal": r.get("journal"), "abstract": r.get("abstract"),
+            "journal": r.get("journal"), "year": r.get("year"),
+            "fields": r.get("fields"), "keywords": r.get("keywords"),
+            "abstract": r.get("abstract"),
         }
 
     try:
@@ -271,6 +274,9 @@ def _llm_extract(evidence: dict) -> dict:
             title: Optional[str] = Field(None)
             authors: Optional[list[str]] = Field(None)
             journal: Optional[str] = Field(None)
+            year: Optional[int] = Field(None)
+            fields: Optional[list[str]] = Field(None)
+            keywords: Optional[list[str]] = Field(None)
             abstract: Optional[str] = Field(None)
 
         chain = prompt | llm.with_structured_output(PaperMeta)

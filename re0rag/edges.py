@@ -1,7 +1,7 @@
 """
 RAG 链路边定义。
 Agentic RAG 流程：
-input -> rewrite_query -> route -> tool -> llm -> judge
+input -> rewrite_query -> route -> tool -> graph_retrieval -> llm -> judge
 judge 通过则 output；不通过且未超过重试上限则回到 route。
 """
 
@@ -16,6 +16,7 @@ import config
 
 from .nodes import (
     input_node,
+    graph_retrieval_node,
     judge_node,
     llm_node,
     output_node,
@@ -32,6 +33,7 @@ NODE_SUMMARIZE_MEMORY = "summarize_memory"
 NODE_REWRITE = "rewrite_query"
 NODE_ROUTE = "route"
 NODE_TOOL = "tool"
+NODE_GRAPH_RETRIEVAL = "graph_retrieval"
 NODE_LLM = "llm"
 NODE_JUDGE = "judge"
 NODE_OUTPUT = "output"
@@ -58,7 +60,7 @@ def judge_router(state) -> str:
 def add_edges(graph) -> None:
     """
     向 StateGraph 注册节点并连线。
-    顺序：START -> input -> summarize_memory -> rewrite_query -> route -> tool -> llm -> judge
+    顺序：START -> input -> summarize_memory -> rewrite_query -> route -> tool -> graph_retrieval -> llm -> judge
           judge -> output / route
 
     Args:
@@ -69,6 +71,7 @@ def add_edges(graph) -> None:
     graph.add_node(NODE_REWRITE, rewrite_node)
     graph.add_node(NODE_ROUTE, route_node)
     graph.add_node(NODE_TOOL, tool_node)
+    graph.add_node(NODE_GRAPH_RETRIEVAL, graph_retrieval_node)
     graph.add_node(NODE_LLM, llm_node)
     graph.add_node(NODE_JUDGE, judge_node)
     graph.add_node(NODE_OUTPUT, output_node)
@@ -78,7 +81,8 @@ def add_edges(graph) -> None:
     graph.add_edge(NODE_SUMMARIZE_MEMORY, NODE_REWRITE)
     graph.add_edge(NODE_REWRITE, NODE_ROUTE)
     graph.add_edge(NODE_ROUTE, NODE_TOOL)
-    graph.add_edge(NODE_TOOL, NODE_LLM)
+    graph.add_edge(NODE_TOOL, NODE_GRAPH_RETRIEVAL)
+    graph.add_edge(NODE_GRAPH_RETRIEVAL, NODE_LLM)
     graph.add_edge(NODE_LLM, NODE_JUDGE)
     graph.add_conditional_edges(
         NODE_JUDGE,
