@@ -62,6 +62,7 @@ class QueryResponse(BaseModel):
     route_history: list[dict[str, Any]]
     judge_result: dict[str, Any]
     memory_summary_result: dict[str, Any]
+    retrieval: dict[str, Any]
 
 
 class SettingsPayload(BaseModel):
@@ -271,6 +272,14 @@ def _compact_evidence(items: list[dict[str, Any]], limit: int = 3) -> list[dict[
 
 
 def _result_payload(result: dict[str, Any], thread_id: str) -> dict[str, Any]:
+    primary_result = next(
+        (
+            item
+            for item in result.get("tool_results") or []
+            if item.get("tool") in {"vector_search", "keyword_search"}
+        ),
+        {},
+    )
     return {
         "answer": (result.get("answer") or "").strip(),
         "thread_id": thread_id,
@@ -280,6 +289,11 @@ def _result_payload(result: dict[str, Any], thread_id: str) -> dict[str, Any]:
         "route_history": result.get("route_history") or [],
         "judge_result": result.get("judge_result") or {},
         "memory_summary_result": result.get("memory_summary_result") or {},
+        "retrieval": {
+            "rerank_enabled": primary_result.get("rerank_enabled"),
+            "candidate_count": primary_result.get("candidate_count"),
+            "result_count": len(primary_result.get("documents") or []),
+        },
     }
 
 

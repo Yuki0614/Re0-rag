@@ -347,9 +347,11 @@ def cmd_query(args: list[str], trace: bool = False) -> int:
     else:
         with contextlib.redirect_stdout(io.StringIO()):
             preload_rag()
-    print("系统就绪，输入问题开始提问（输入 exit 或 quit 退出）。")
+    rerank_stage = "BCE Rerank 精排" if config.RERANK_ENABLED else "BCE Rerank 已关闭"
+    print(f"系统就绪：本地 Embedding → Qdrant/BM25 初筛 → {rerank_stage}。")
+    print("输入问题开始提问（输入 exit 或 quit 退出）。")
     if trace:
-        print("当前为 trace 模式，将显示记忆摘要、改写、路由、工具调用和检查流程。")
+        print("当前为 trace 模式，将显示记忆摘要、改写、路由、初筛/精排、图谱增强和检查流程。")
     print("-" * 60)
 
     while True:

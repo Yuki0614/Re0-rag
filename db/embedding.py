@@ -3,10 +3,9 @@ from __future__ import annotations
 """
 向量化模块：使用 embedding 模型将文本块转为向量。
 模型名与缓存目录等超参数统一从根 config 读取。
-通过 HF_ENDPOINT 环境变量设置镜像站地址。
+模型下载由 db.hf_download 管理：优先官方 Hugging Face，失败后降级镜像。
 """
 
-import os
 import sys
 from pathlib import Path
 
@@ -14,11 +13,10 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import config
 
-# 使用 HF 镜像站下载模型（根据需要可修改镜像地址）
-os.environ.setdefault("HF_ENDPOINT", "https://hf-mirror.com")
-
 from langchain_huggingface import HuggingFaceEmbeddings
 from trace.telemetry import trace_span
+
+from .hf_download import resolve_model_path
 
 
 # 模型参数（来自根 config）
@@ -68,10 +66,12 @@ def get_embedding_model() -> HuggingFaceEmbeddings:
     if _is_model_cached():
         print(f"[Embedding] 检测到模型: {MODEL_NAME}，直接加载")
     else:
-        print(f"[Embedding] 未检测到本地模型，正在下载: {MODEL_NAME} ...")
+        print(f"[Embedding] 未检测到本地模型: {MODEL_NAME}")
+
+    model_path = resolve_model_path(MODEL_NAME, MODEL_CACHE_DIR)
 
     _embedding_model = HuggingFaceEmbeddings(
-        model_name=MODEL_NAME,
+        model_name=model_path,
         cache_folder=MODEL_CACHE_DIR,
         model_kwargs={"trust_remote_code": True},
         encode_kwargs={"normalize_embeddings": True},

@@ -49,14 +49,17 @@ def get_app():
 
 def preload() -> None:
     """
-    预加载：编译图并触发 embedding 模型加载。
+    预加载：编译图并触发 embedding 与 reranker 模型加载。
     在系统启动时调用，避免首次提问才加载造成的延迟。
     """
     # 编译图
     get_app()
     # 触发 embedding 模型加载（tool 层会复用同一实例）
     from db.embedding import get_embedding_model
+    from db.reranker import get_reranker
+
     get_embedding_model()
+    get_reranker()
 
 
 @trace_span(

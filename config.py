@@ -86,6 +86,17 @@ OCR_OPTIONAL_PAYLOAD = {
 # ──────────────────────────────────────────────
 EMBEDDING_MODEL_NAME = "all-MiniLM-L6-v2"
 EMBEDDING_VECTOR_SIZE = 384   # all-MiniLM-L6-v2 输出 384 维
+RERANK_MODEL_NAME = "maidalun1020/bce-reranker-base_v1"
+RERANK_MODEL_DIR = PROJECT_ROOT / "model" / "reranker"
+RERANK_ENABLED = _env("RE0RAG_RERANK_ENABLED", default="1").lower() not in {"0", "false", "no", "off"}
+RERANK_CANDIDATE_K = 12  # 初筛后交给 cross-encoder 的 child chunks 数量
+RERANK_TOP_K = 4         # 精排后用于 parent 回填与回答的 child chunks 数量
+RERANK_MAX_LENGTH = 512
+RERANK_BATCH_SIZE = 8
+
+# Hugging Face 下载：优先官方站；只有官方站请求失败才降级镜像。
+HF_PRIMARY_ENDPOINT = _env("RE0RAG_HF_PRIMARY_ENDPOINT", default="https://huggingface.co")
+HF_MIRROR_ENDPOINT = _env("RE0RAG_HF_MIRROR_ENDPOINT", "HF_MIRROR_ENDPOINT", "https://hf-mirror.com")
 
 
 # ──────────────────────────────────────────────

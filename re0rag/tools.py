@@ -17,6 +17,7 @@ import config
 
 from db.embedding import get_embedding_model
 from db.literature_graph import graph_status, search_graph
+from db.reranker import rerank_hits
 from db.manager import (
     fetch_linked_tables,
     fetch_parents,
@@ -55,10 +56,12 @@ def vector_search_tool(query: str, top_k: int | None = None) -> dict:
     Returns:
         统一 tool result，含 child hits / parent evidence / sources
     """
-    top_k = top_k or config.VECTOR_TOP_K
+    top_k = top_k or (config.RERANK_TOP_K if config.RERANK_ENABLED else config.VECTOR_TOP_K)
     model = get_embedding_model()
     query_vector = model.embed_query(query)
-    child_hits = search(query_vector=query_vector, top_k=top_k, doc_type="text")
+    candidate_k = max(top_k, config.RERANK_CANDIDATE_K) if config.RERANK_ENABLED else top_k
+    candidate_hits = search(query_vector=query_vector, top_k=candidate_k, doc_type="text")
+    child_hits = rerank_hits(query, candidate_hits, top_k)
     parents, _parent_ids = fetch_parents(child_hits)
     table_hits = search_tables(query_vector=query_vector, top_k=config.TABLE_TOP_K)
     linked_tables = fetch_linked_tables(parents)
@@ -71,11 +74,19 @@ def vector_search_tool(query: str, top_k: int | None = None) -> dict:
         "query": query,
         "query_vector": query_vector,
         "documents": child_hits,
+        "rerank_enabled": config.RERANK_ENABLED,
+        "candidate_count": len(candidate_hits),
         "evidence": evidence,
         "parents": parents,
         "tables": tables,
         "sources": sources,
-        "summary": f"向量检索命中 {len(child_hits)} 个子片段，召回 {len(parents)} 个父章节，附加 {len(tables)} 张表格",
+        "summary": _retrieval_summary(
+            "向量",
+            candidate_count=len(candidate_hits),
+            child_count=len(child_hits),
+            parent_count=len(parents),
+            table_count=len(tables),
+        ),
     }
 
 
@@ -95,9 +106,11 @@ def vector_search_tool(query: str, top_k: int | None = None) -> dict:
 )
 def keyword_search_tool(query: str, top_k: int | None = None) -> dict:
     """关键词检索 tool：Qdrant BM25 sparse search -> parent 召回。"""
-    top_k = top_k or config.KEYWORD_TOP_K
+    top_k = top_k or (config.RERANK_TOP_K if config.RERANK_ENABLED else config.KEYWORD_TOP_K)
     terms = _tokenize_query(query)
-    child_hits = keyword_search(query=query, top_k=top_k)
+    candidate_k = max(top_k, config.RERANK_CANDIDATE_K) if config.RERANK_ENABLED else top_k
+    candidate_hits = keyword_search(query=query, top_k=candidate_k)
+    child_hits = rerank_hits(query, candidate_hits, top_k)
     parents, _parent_ids = fetch_parents(child_hits)
     table_hits = keyword_search_tables(query=query, top_k=config.TABLE_TOP_K)
     linked_tables = fetch_linked_tables(parents)
@@ -110,11 +123,19 @@ def keyword_search_tool(query: str, top_k: int | None = None) -> dict:
         "query": query,
         "terms": terms,
         "documents": child_hits,
+        "rerank_enabled": config.RERANK_ENABLED,
+        "candidate_count": len(candidate_hits),
         "evidence": evidence,
         "parents": parents,
         "tables": tables,
         "sources": sources,
-        "summary": f"关键词检索命中 {len(child_hits)} 个子片段，召回 {len(parents)} 个父章节，附加 {len(tables)} 张表格",
+        "summary": _retrieval_summary(
+            "关键词",
+            candidate_count=len(candidate_hits),
+            child_count=len(child_hits),
+            parent_count=len(parents),
+            table_count=len(tables),
+        ),
     }
 
 
@@ -223,6 +244,22 @@ def _tokenize_query(query: str) -> list[str]:
             continue
         terms.append(term)
     return list(dict.fromkeys(terms))
+
+
+def _retrieval_summary(
+    retrieval_type: str,
+    *,
+    candidate_count: int,
+    child_count: int,
+    parent_count: int,
+    table_count: int,
+) -> str:
+    """Build a concise, user-facing description of the retrieval stages."""
+    if config.RERANK_ENABLED:
+        retrieval_stage = f"初筛 {candidate_count} 个子片段，经 BCE 精排保留 {child_count} 个"
+    else:
+        retrieval_stage = f"命中 {child_count} 个子片段（BCE 精排已关闭）"
+    return f"{retrieval_type}检索{retrieval_stage}，召回 {parent_count} 个父章节，附加 {table_count} 张表格"
 
 
 def _merge_tables(*groups: list[dict]) -> list[dict]:

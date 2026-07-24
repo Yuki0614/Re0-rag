@@ -27,6 +27,7 @@ export type QueryResult = {
     action: string;
     query: string;
     reason?: string;
+    use_graph?: boolean;
   }>;
   judge_result: {
     passed?: boolean;
@@ -37,6 +38,11 @@ export type QueryResult = {
     triggered?: boolean;
     removed_count?: number;
     summary_length?: number;
+  };
+  retrieval?: {
+    rerank_enabled?: boolean;
+    candidate_count?: number;
+    result_count?: number;
   };
 };
 

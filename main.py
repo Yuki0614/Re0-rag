@@ -22,6 +22,10 @@ def _run_cli(argv: list[str]) -> int:
         print("  list")
         print("  query [-t] <question>")
         print("")
+        print("retrieval:")
+        print("  vector / BM25 初筛 → BCE cross-encoder Rerank 精排 → 父章节与表格证据")
+        print("  Set RE0RAG_RERANK_ENABLED=0 to disable reranking.")
+        print("")
         print("trace:")
         print("  python main.py -t [question]")
         return 0

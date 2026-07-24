@@ -10,10 +10,12 @@ __pycache__/
 !.env.example
 
 script/
-test/
+tests/
 
 model/embedding/*
 !model/embedding/.gitkeep
+model/reranker/*
+!model/reranker/.gitkeep
 db/vector/*
 !db/vector/.gitkeep
 db/chunks/*
